@@ -1,0 +1,71 @@
+import glob
+import zlib
+import os
+import subprocess
+import importlib
+import getpass
+import re
+from pathlib import Path
+
+
+def crc32(fileName):
+    with open(fileName, 'rb') as fh:
+        hash = 0
+        while True:
+            s = fh.read(65536)
+            if not s:
+                break
+            hash = zlib.crc32(s, hash)
+        return "%08X" % (hash & 0xFFFFFFFF)
+
+
+if __name__ == '__main__':
+    basepath = os.path.dirname(__file__)
+
+    if getpass.getuser() == 'hsqmmanager':
+        path = os.path.join(basepath, 'versions')
+        versions = []
+        folder_list = os.listdir(path)
+        for name in folder_list:
+            if re.match(r'^\d+-\d+-\d+$', name) and os.path.isdir(os.path.join(path, name)):
+                versions.append(name)
+        versions.sort(key=lambda s: list(map(int, s.split('-'))), reverse=True)
+
+        for version in versions:
+            try:
+                valid = True
+                crc_dict = dict()
+                with open(os.path.join(path, f'{version}-crc.txt'), 'r') as f:
+                    for line in f.readlines():
+                        file, crc = line.split()
+                        crc_dict[file] = crc
+
+                for file, crc in crc_dict.items():
+                    if crc32(os.path.join(path, file)) != crc:
+                        print(f'{version}: CRC does not Matched in file!, {file}')
+                        valid = False
+                        break
+
+                files_py = list(map(lambda x: x.as_posix(), Path(path, version).rglob("*.py")))
+                for file in files_py:
+                    file_key = Path(file).relative_to(Path(path)).as_posix()
+                    if crc32(file) != crc_dict[file_key]:
+                        print(f'{version}: CRC does not Matched in file!, {file}')
+                        valid = False
+                        break
+
+                #if not valid:
+                #    continue
+
+                module_name = f'versions.{version}.app'
+                print(module_name.encode())
+                app = importlib.import_module(module_name, package=None)
+                app.main()
+            except Exception as e:
+                print(e)
+
+    else:
+        version = 'dev'
+        module_name = f'devs.{version}.app'
+        app = importlib.import_module(module_name, package=None)
+        app.main()
